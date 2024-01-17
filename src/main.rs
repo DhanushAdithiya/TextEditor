@@ -25,11 +25,13 @@ fn main() -> io::Result<()> {
                     die("read failed");
                 }
             }
-            Ok(false) => {}
             _ => {
-                die("pool failed");
-                // TODO - BUG FIX
-                // This does not fail on ubuntu
+                let msg = errno();
+                if msg.to_string() == "Success" {
+                    continue;
+                } else {
+                    die("pool failed");
+                }
             }
         }
 
