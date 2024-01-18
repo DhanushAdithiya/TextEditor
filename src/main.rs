@@ -5,6 +5,8 @@ use errno::errno;
 use std::time::Duration;
 use std::{io, io::Write};
 
+const VERSION: &str = "0.0.1";
+
 #[derive(Debug)]
 struct EditorState {
     dimensions: WindowSize,
@@ -45,15 +47,94 @@ fn read_character() -> Option<KeyEvent> {
     }
 }
 
-fn editor_draw_rows(terminal_state: EditorState) {
+fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
     let mut stdout = io::stdout();
-    for i in 0..terminal_state.dimensions.rows {
-        write!(stdout, "~").unwrap();
+    match key.code {
+        KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::NONE) => {
+            terminal_state.cy = terminal_state.cy + 1;
+        }
+        KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::NONE) => {
+            if terminal_state.cx > 0 {
+                terminal_state.cx = terminal_state.cx - 1;
+            }
+        }
+        KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::NONE) => {
+            if terminal_state.cy > 0 {
+                terminal_state.cy = terminal_state.cy - 1;
+            }
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::NONE) => {
+            terminal_state.cx = terminal_state.cx + 1;
+        }
+        _ => {}
+    }
 
-        if i < terminal_state.dimensions.rows - 1 {
-            write!(stdout, "\r\n").unwrap();
+    crossterm::execute!(
+        stdout,
+        MoveTo(terminal_state.cx as u16, terminal_state.cy as u16)
+    )
+    .unwrap();
+}
+
+fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
+    let mut c = None;
+    match poll(Duration::from_millis(100)) {
+        Ok(true) => match read_character() {
+            Some(key) => c = Some(key),
+            None => {}
+        },
+        _ => {
+            let msg = errno();
+            match msg.to_string().as_str() {
+                "Success" | "Resource temporarily unavailable" => {}
+                _ => die("poll failed"),
+            }
         }
     }
+
+    match c {
+        Some(c) => match c.code {
+            KeyCode::Char('q') if c.modifiers.contains(KeyModifiers::CONTROL) => {
+                return Ok(true); // Exit the loop
+            }
+            KeyCode::Char('w') | KeyCode::Char('a') | KeyCode::Char('s') | KeyCode::Char('d') => {
+                process_movement(terminal_state, c)
+            }
+            _ => {}
+        },
+        None => {} // Handle the case where there's no character
+    }
+
+    //    if let Some(c) = c {
+    //        if c.code == KeyCode::Char('q') && c.modifiers.contains(KeyModifiers::CONTROL) {
+    //            return Ok(true); // Exit the loop
+    //        } else {
+    //            println!("{c:?}\r");
+    //        }
+    //    }
+
+    Ok(false) // Continue the loop
+}
+
+fn editor_draw_rows(terminal_state: &EditorState) {
+    let mut buffer = String::new();
+    let mut stdout = io::stdout();
+    for i in 0..terminal_state.dimensions.rows {
+        if i == terminal_state.dimensions.rows / 3 {
+            let welcome_str = format!("BREAD EDITOR - VERSION : {VERSION}");
+            let w = (terminal_state.dimensions.columns as usize - welcome_str.len()) / 2;
+            let padding = format!("~{:width$}", " ", width = w);
+            buffer.push_str(&padding);
+            buffer.push_str(&welcome_str);
+        } else {
+            buffer.push_str("~");
+        }
+
+        if i < terminal_state.dimensions.rows - 1 {
+            buffer.push_str("\r\n");
+        }
+    }
+    write!(stdout, "{buffer}").unwrap();
     crossterm::execute!(io::stdout(), MoveTo(0, 0)).unwrap();
 }
 
@@ -63,45 +144,14 @@ fn refresh_screen() {
 }
 
 fn main() -> io::Result<()> {
-    let term = EditorState::new();
+    let mut term = EditorState::new();
     crossterm::terminal::enable_raw_mode()?;
     refresh_screen();
-    editor_draw_rows(term);
+    editor_draw_rows(&term);
 
     loop {
-        let mut c = None;
-
-        crossterm::terminal::Clear(crossterm::terminal::ClearType::All);
-
-        match poll(Duration::from_millis(100)) {
-            Ok(true) => match read_character() {
-                Some(key) => c = Some(key),
-                None => {}
-            },
-            _ => {
-                let msg = errno();
-
-                //HORRBLE ERROR HANDLING HERE FIX IT
-                match msg.to_string().as_str() {
-                    "Success" => {
-                        continue;
-                    }
-                    "Resource temporarily unavailable" => {
-                        continue;
-                    }
-                    _ => {
-                        die("pool failed");
-                    }
-                }
-            }
-        }
-
-        if let Some(c) = c {
-            if c.code == KeyCode::Char('q') && c.modifiers.contains(KeyModifiers::CONTROL) {
-                break;
-            } else {
-                println!("{c:?}\r");
-            }
+        if process_char(&mut term)? {
+            break;
         }
     }
 
