@@ -7,11 +7,18 @@ use std::{io, io::Write};
 
 const VERSION: &str = "0.0.1";
 
+#[derive(Debug, PartialEq)]
+enum EditorMode {
+    NORMAL,
+    INSERT,
+}
+
 #[derive(Debug)]
 struct EditorState {
     dimensions: WindowSize,
     cx: usize,
     cy: usize,
+    mode: EditorMode,
 }
 
 impl EditorState {
@@ -21,6 +28,7 @@ impl EditorState {
                 dimensions,
                 cx: 0,
                 cy: 0,
+                mode: EditorMode::NORMAL,
             }
         } else {
             panic!("Couldn't get terminal size");
@@ -48,27 +56,27 @@ fn read_character() -> Option<KeyEvent> {
 }
 
 fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
+    // TODO - ADD NORMAL MODE AND INSERT MODE
     let mut stdout = io::stdout();
     match key.code {
-        KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::NONE) => {
+        KeyCode::Char('j') => {
             terminal_state.cy = terminal_state.cy + 1;
         }
-        KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::NONE) => {
+        KeyCode::Char('h') => {
             if terminal_state.cx > 0 {
                 terminal_state.cx = terminal_state.cx - 1;
             }
         }
-        KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::NONE) => {
+        KeyCode::Char('k') => {
             if terminal_state.cy > 0 {
                 terminal_state.cy = terminal_state.cy - 1;
             }
         }
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::NONE) => {
+        KeyCode::Char('l') => {
             terminal_state.cx = terminal_state.cx + 1;
         }
         _ => {}
     }
-
     crossterm::execute!(
         stdout,
         MoveTo(terminal_state.cx as u16, terminal_state.cy as u16)
@@ -97,21 +105,21 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
             KeyCode::Char('q') if c.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Ok(true); // Exit the loop
             }
-            KeyCode::Char('w') | KeyCode::Char('a') | KeyCode::Char('s') | KeyCode::Char('d') => {
+            KeyCode::Char('h') | KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Char('l')
+                if terminal_state.mode == EditorMode::NORMAL =>
+            {
                 process_movement(terminal_state, c)
+            }
+            KeyCode::Char('i') => {
+                terminal_state.mode = EditorMode::INSERT;
+            }
+            KeyCode::Esc => {
+                terminal_state.mode = EditorMode::NORMAL;
             }
             _ => {}
         },
         None => {} // Handle the case where there's no character
     }
-
-    //    if let Some(c) = c {
-    //        if c.code == KeyCode::Char('q') && c.modifiers.contains(KeyModifiers::CONTROL) {
-    //            return Ok(true); // Exit the loop
-    //        } else {
-    //            println!("{c:?}\r");
-    //        }
-    //    }
 
     Ok(false) // Continue the loop
 }
