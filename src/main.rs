@@ -1,6 +1,6 @@
 use crossterm::cursor::MoveTo;
 use crossterm::event::{poll, read, Event::Key, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{window_size, Clear, ClearType, WindowSize};
+use crossterm::terminal::{size, Clear, ClearType};
 use errno::errno;
 use std::time::Duration;
 use std::{io, io::Write};
@@ -14,6 +14,12 @@ enum EditorMode {
 }
 
 #[derive(Debug)]
+struct WindowSize {
+    rows: u16,
+    columns: u16,
+}
+
+#[derive(Debug)]
 struct EditorState {
     dimensions: WindowSize,
     cx: usize,
@@ -23,11 +29,16 @@ struct EditorState {
 
 impl EditorState {
     fn new() -> Self {
-        if let Ok(dimensions) = window_size() {
+        if let Ok((height, width)) = size() {
+            let dimensions = WindowSize {
+                rows: width - 1,
+                columns: height - 1,
+            };
+
             Self {
                 dimensions,
-                cx: 0,
-                cy: 0,
+                cx: 1,
+                cy: 1,
                 mode: EditorMode::NORMAL,
             }
         } else {
@@ -40,6 +51,18 @@ fn die<M: Into<String>>(msg: M) {
     let _ = crossterm::terminal::disable_raw_mode();
     eprintln!("{}:{}", msg.into(), errno());
     std::process::exit(1);
+}
+
+fn display_editor_mode(terminal_state: &EditorState) {
+    let mut stdout = io::stdout();
+
+    crossterm::execute!(stdout, MoveTo(2, terminal_state.dimensions.rows)).unwrap();
+    write!(stdout, "{:?}", terminal_state.mode).unwrap();
+    crossterm::execute!(
+        stdout,
+        MoveTo(terminal_state.cx as u16 - 1, terminal_state.cy as u16 - 1)
+    )
+    .unwrap();
 }
 
 fn read_character() -> Option<KeyEvent> {
@@ -60,7 +83,13 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
     let mut stdout = io::stdout();
     match key.code {
         KeyCode::Char('j') => {
-            terminal_state.cy = terminal_state.cy + 1;
+            if terminal_state.cy <= terminal_state.dimensions.rows.into() {
+                println!(
+                    "  {:?}:{:?}\r",
+                    terminal_state.cy, terminal_state.dimensions.rows
+                );
+                terminal_state.cy = terminal_state.cy + 1;
+            }
         }
         KeyCode::Char('h') => {
             if terminal_state.cx > 0 {
@@ -73,13 +102,15 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
             }
         }
         KeyCode::Char('l') => {
-            terminal_state.cx = terminal_state.cx + 1;
+            if terminal_state.cx != terminal_state.dimensions.columns as usize {
+                terminal_state.cx = terminal_state.cx + 1;
+            }
         }
         _ => {}
     }
     crossterm::execute!(
         stdout,
-        MoveTo(terminal_state.cx as u16, terminal_state.cy as u16)
+        MoveTo(terminal_state.cx as u16 - 1, terminal_state.cy as u16 - 1)
     )
     .unwrap();
 }
@@ -158,6 +189,7 @@ fn main() -> io::Result<()> {
     editor_draw_rows(&term);
 
     loop {
+        display_editor_mode(&term);
         if process_char(&mut term)? {
             break;
         }
