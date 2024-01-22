@@ -84,20 +84,16 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
     match key.code {
         KeyCode::Char('j') => {
             if terminal_state.cy <= terminal_state.dimensions.rows.into() {
-                println!(
-                    "  {:?}:{:?}\r",
-                    terminal_state.cy, terminal_state.dimensions.rows
-                );
                 terminal_state.cy = terminal_state.cy + 1;
             }
         }
         KeyCode::Char('h') => {
-            if terminal_state.cx > 0 {
+            if terminal_state.cx > 1 {
                 terminal_state.cx = terminal_state.cx - 1;
             }
         }
         KeyCode::Char('k') => {
-            if terminal_state.cy > 0 {
+            if terminal_state.cy > 1 {
                 terminal_state.cy = terminal_state.cy - 1;
             }
         }
