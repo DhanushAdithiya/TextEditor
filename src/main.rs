@@ -3,7 +3,7 @@ use crossterm::event::{poll, read, Event::Key, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{size, Clear, ClearType};
 use errno::errno;
 use std::time::Duration;
-use std::{io, io::Write};
+use std::{env, io, io::{Write, Read}, fs::File,};
 
 const VERSION: &str = "0.0.1";
 
@@ -11,6 +11,22 @@ const VERSION: &str = "0.0.1";
 enum EditorMode {
     NORMAL,
     INSERT,
+}
+
+
+#[derive(Debug)]
+struct Erow {
+   size: usize,
+   chars: String,
+}
+
+impl Erow {
+    fn new() -> Self {
+        Self {
+            size: 0,
+            chars: String::from(""),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -25,6 +41,8 @@ struct EditorState {
     cx: usize,
     cy: usize,
     mode: EditorMode,
+    row: Erow,
+    numrows: u16,
 }
 
 impl EditorState {
@@ -35,11 +53,15 @@ impl EditorState {
                 columns: height - 1,
             };
 
+            let row = Erow::new();
+
             Self {
                 dimensions,
                 cx: 1,
                 cy: 1,
                 mode: EditorMode::NORMAL,
+                numrows: 0,
+                row,
             }
         } else {
             panic!("Couldn't get terminal size");
@@ -79,11 +101,10 @@ fn read_character() -> Option<KeyEvent> {
 }
 
 fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
-    // TODO - ADD NORMAL MODE AND INSERT MODE
     let mut stdout = io::stdout();
     match key.code {
         KeyCode::Char('j') => {
-            if terminal_state.cy <= terminal_state.dimensions.rows.into() {
+            if terminal_state.cy <= terminal_state.dimensions.rows as usize - 1 {
                 terminal_state.cy = terminal_state.cy + 1;
             }
         }
@@ -98,7 +119,7 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
             }
         }
         KeyCode::Char('l') => {
-            if terminal_state.cx != terminal_state.dimensions.columns as usize {
+            if terminal_state.cx < terminal_state.dimensions.columns as usize {
                 terminal_state.cx = terminal_state.cx + 1;
             }
         }
@@ -110,6 +131,25 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
     )
     .unwrap();
 }
+
+fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
+    match key {
+        '$' => {
+            terminal_state.cx = terminal_state.dimensions.columns.into();
+            move_cursor(terminal_state);
+        }
+        '_' => {
+            terminal_state.cx = 1;
+            move_cursor(terminal_state);
+        }
+        _ => {}
+    }
+}
+
+fn move_cursor(terminal_state: &mut EditorState) {
+    crossterm::execute!(io::stdout(), MoveTo(terminal_state.cx as u16, terminal_state.cy as u16)).unwrap();
+}
+
 
 fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
     let mut c = None;
@@ -143,6 +183,9 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
             KeyCode::Esc => {
                 terminal_state.mode = EditorMode::NORMAL;
             }
+            KeyCode::Char(c) if terminal_state.mode == EditorMode::NORMAL => {
+                normal_mode_shortcuts(terminal_state, c);
+            }
             _ => {}
         },
         None => {} // Handle the case where there's no character
@@ -155,14 +198,23 @@ fn editor_draw_rows(terminal_state: &EditorState) {
     let mut buffer = String::new();
     let mut stdout = io::stdout();
     for i in 0..terminal_state.dimensions.rows {
-        if i == terminal_state.dimensions.rows / 3 {
-            let welcome_str = format!("BREAD EDITOR - VERSION : {VERSION}");
-            let w = (terminal_state.dimensions.columns as usize - welcome_str.len()) / 2;
-            let padding = format!("~{:width$}", " ", width = w);
-            buffer.push_str(&padding);
-            buffer.push_str(&welcome_str);
+        if i >= terminal_state.numrows {
+            if i == terminal_state.dimensions.rows / 3 {
+                let welcome_str = format!("BREAD EDITOR - VERSION : {VERSION}");
+                let w = (terminal_state.dimensions.columns as usize - welcome_str.len()) / 2;
+                let padding = format!("~{:width$}", " ", width = w);
+                buffer.push_str(&padding);
+                buffer.push_str(&welcome_str);
+            } else {
+                buffer.push_str("~");
+            }
         } else {
-            buffer.push_str("~");
+            let mut len = terminal_state.row.size as u16;
+            if len > terminal_state.dimensions.columns {
+                len = terminal_state.dimensions.columns;
+            }
+            let text = format!("{}",terminal_state.row.chars);
+            buffer.push_str("HELLO");
         }
 
         if i < terminal_state.dimensions.rows - 1 {
@@ -178,10 +230,28 @@ fn refresh_screen() {
     crossterm::execute!(io::stdout(), MoveTo(0, 0)).unwrap();
 }
 
+
+fn editor_open(terminal_state: &mut EditorState, filename: &str){
+    if let Ok(mut f) = File::open(filename) {
+        let mut buffer = String::new();
+        f.read_to_string(&mut buffer);
+        terminal_state.numrows = 1;
+        terminal_state.row.chars = buffer.lines().nth(0).unwrap().to_string(); // bad error handling
+        terminal_state.row.size = buffer.len();
+
+    } else {
+        die("File not found, please check directory");
+    }
+}
+
 fn main() -> io::Result<()> {
+    let args: Vec<String> = env::args().collect();
     let mut term = EditorState::new();
     crossterm::terminal::enable_raw_mode()?;
     refresh_screen();
+    if args.len() > 2 {
+        editor_open(&mut term, &args[2]);
+    }
     editor_draw_rows(&term);
 
     loop {
