@@ -1,7 +1,6 @@
 use crossterm::cursor::MoveTo;
 use crossterm::event::{poll, read, Event::Key, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{size, Clear, ClearType};
-use errno::errno;
 use std::time::Duration;
 use std::{
     env,
@@ -73,12 +72,6 @@ impl EditorState {
     }
 }
 
-fn die<M: Into<String>>(msg: M) {
-    let _ = crossterm::terminal::disable_raw_mode();
-    eprintln!("{}:{}", msg.into(), errno());
-    std::process::exit(1);
-}
-
 fn display_editor_mode(terminal_state: &EditorState) {
     let mut stdout = io::stdout();
 
@@ -99,8 +92,7 @@ fn read_character() -> Option<KeyEvent> {
             None
         }
     } else {
-        die("read failed");
-        None
+        panic!("read failed");
     }
 }
 
@@ -165,13 +157,7 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
             Some(key) => c = Some(key),
             None => {}
         },
-        _ => {
-            let msg = errno();
-            match msg.to_string().as_str() {
-                "Success" | "Resource temporarily unavailable" => {}
-                _ => die("poll failed"),
-            }
-        }
+        _ => {}
     }
 
     match c {
@@ -202,7 +188,6 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
 }
 
 fn editor_draw_rows(terminal_state: &EditorState) {
-    println!("called");
     let mut buffer = String::new();
     let mut stdout = io::stdout();
     for i in 0..terminal_state.dimensions.rows {
@@ -217,10 +202,22 @@ fn editor_draw_rows(terminal_state: &EditorState) {
                 buffer.push_str("~");
             }
         } else {
-            terminal_state.row.iter().for_each(|l| {
-                buffer.push_str(&l.chars);
-                buffer.push_str("\r\n");
-            });
+            let mut length = terminal_state.row[i as usize].size;
+            if length > terminal_state.dimensions.columns as usize {
+                length = terminal_state.dimensions.columns as usize;
+            }
+
+            buffer.push_str(&terminal_state.row[i as usize].chars[..length]);
+
+            //terminal_state.row.iter().for_each(|l| {
+            //    let mut length = l.size;
+            //    if length > terminal_state.dimensions.columns as usize {
+            //        length = terminal_state.dimensions.columns as usize;
+            //    }
+
+            //    buffer.push_str(&l.chars[..length]);
+            //    buffer.push_str("\r\n");
+            //});
         }
 
         if i < terminal_state.dimensions.rows - 1 {
@@ -257,8 +254,6 @@ fn editor_open(terminal_state: &mut EditorState, filename: &str) {
                 cap += 1;
             }
         });
-    } else {
-        die("File not found, please check directory");
     }
 }
 
@@ -269,6 +264,7 @@ fn main() -> io::Result<()> {
     refresh_screen();
     if args.len() == 2 {
         editor_open(&mut term, &args[1]);
+        editor_draw_rows(&term);
     }
     editor_draw_rows(&term);
 
