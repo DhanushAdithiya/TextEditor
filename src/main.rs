@@ -50,30 +50,27 @@ struct EditorState {
 
 impl EditorState {
     fn new() -> Self {
-        if let Ok((height, width)) = size() {
-            let dimensions = WindowSize {
-                rows: width - 1,
-                columns: height - 1,
-            };
+        let row = Vec::new();
+        let dimensions = resize_terminal();
 
-            let row = Vec::new();
-
-            Self {
-                dimensions,
-                cx: 1,
-                cy: 1,
-                mode: EditorMode::NORMAL,
-                numrows: 0,
-                row,
-            }
-        } else {
-            panic!("Couldn't get terminal size");
+        Self {
+            dimensions,
+            cx: 1,
+            cy: 1,
+            mode: EditorMode::NORMAL,
+            numrows: 0,
+            row,
         }
     }
 }
 
-fn display_editor_mode(terminal_state: &EditorState) {
+fn display_editor_mode(terminal_state: &mut EditorState) {
     let mut stdout = io::stdout();
+    let dimensions = resize_terminal();
+
+    crossterm::execute!(stdout, MoveTo(0, terminal_state.dimensions.rows)).unwrap();
+    crossterm::execute!(stdout, Clear(ClearType::CurrentLine)).unwrap();
+    terminal_state.dimensions = dimensions;
 
     crossterm::execute!(stdout, MoveTo(2, terminal_state.dimensions.rows)).unwrap();
     write!(stdout, "{:?}", terminal_state.mode).unwrap();
@@ -82,6 +79,19 @@ fn display_editor_mode(terminal_state: &EditorState) {
         MoveTo(terminal_state.cx as u16 - 1, terminal_state.cy as u16 - 1)
     )
     .unwrap();
+}
+
+fn resize_terminal() -> WindowSize {
+    if let Ok((height, width)) = size() {
+        let dimensions = WindowSize {
+            rows: width - 1,
+            columns: height - 1,
+        };
+
+        return dimensions;
+    } else {
+        panic!("could not get terminal size");
+    }
 }
 
 fn read_character() -> Option<KeyEvent> {
@@ -206,18 +216,7 @@ fn editor_draw_rows(terminal_state: &EditorState) {
             if length > terminal_state.dimensions.columns as usize {
                 length = terminal_state.dimensions.columns as usize;
             }
-
             buffer.push_str(&terminal_state.row[i as usize].chars[..length]);
-
-            //terminal_state.row.iter().for_each(|l| {
-            //    let mut length = l.size;
-            //    if length > terminal_state.dimensions.columns as usize {
-            //        length = terminal_state.dimensions.columns as usize;
-            //    }
-
-            //    buffer.push_str(&l.chars[..length]);
-            //    buffer.push_str("\r\n");
-            //});
         }
 
         if i < terminal_state.dimensions.rows - 1 {
@@ -229,6 +228,7 @@ fn editor_draw_rows(terminal_state: &EditorState) {
 }
 
 fn refresh_screen() {
+    crossterm::execute!(io::stdout(), Clear(ClearType::Purge)).unwrap();
     crossterm::execute!(io::stdout(), Clear(ClearType::All)).unwrap();
     crossterm::execute!(io::stdout(), MoveTo(0, 0)).unwrap();
 }
@@ -264,12 +264,11 @@ fn main() -> io::Result<()> {
     refresh_screen();
     if args.len() == 2 {
         editor_open(&mut term, &args[1]);
-        editor_draw_rows(&term);
     }
     editor_draw_rows(&term);
 
     loop {
-        display_editor_mode(&term);
+        display_editor_mode(&mut term);
         if process_char(&mut term)? {
             break;
         }
