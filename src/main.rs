@@ -46,6 +46,7 @@ struct EditorState {
     mode: EditorMode,
     row: Vec<Erow>,
     numrows: u16,
+    rowoff: u16,
 }
 
 impl EditorState {
@@ -60,6 +61,7 @@ impl EditorState {
             mode: EditorMode::NORMAL,
             numrows: 0,
             row,
+            rowoff: 0,
         }
     }
 }
@@ -110,7 +112,7 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
     let mut stdout = io::stdout();
     match key.code {
         KeyCode::Char('j') => {
-            if terminal_state.cy <= terminal_state.dimensions.rows as usize - 1 {
+            if terminal_state.cy <= terminal_state.numrows as usize - 1 {
                 terminal_state.cy = terminal_state.cy + 1;
             }
         }
@@ -201,7 +203,8 @@ fn editor_draw_rows(terminal_state: &EditorState) {
     let mut buffer = String::new();
     let mut stdout = io::stdout();
     for i in 0..terminal_state.dimensions.rows {
-        if i >= terminal_state.numrows {
+        let filerow = i + terminal_state.rowoff;
+        if filerow >= terminal_state.numrows {
             if i == terminal_state.dimensions.rows / 3 && terminal_state.numrows == 0 {
                 let welcome_str = format!("BREAD EDITOR - VERSION : {VERSION}");
                 let w = (terminal_state.dimensions.columns as usize - welcome_str.len()) / 2;
@@ -212,11 +215,11 @@ fn editor_draw_rows(terminal_state: &EditorState) {
                 buffer.push_str("~");
             }
         } else {
-            let mut length = terminal_state.row[i as usize].size;
+            let mut length = terminal_state.row[filerow as usize].size;
             if length > terminal_state.dimensions.columns as usize {
                 length = terminal_state.dimensions.columns as usize;
             }
-            buffer.push_str(&terminal_state.row[i as usize].chars[..length]);
+            buffer.push_str(&terminal_state.row[filerow as usize].chars[..length]);
         }
 
         if i < terminal_state.dimensions.rows - 1 {
@@ -227,10 +230,11 @@ fn editor_draw_rows(terminal_state: &EditorState) {
     crossterm::execute!(io::stdout(), MoveTo(0, 0)).unwrap();
 }
 
-fn refresh_screen() {
-    crossterm::execute!(io::stdout(), Clear(ClearType::Purge)).unwrap();
-    crossterm::execute!(io::stdout(), Clear(ClearType::All)).unwrap();
-    crossterm::execute!(io::stdout(), MoveTo(0, 0)).unwrap();
+fn refresh_screen(terminal_state: &mut EditorState) {
+    editor_scroll(terminal_state);
+    crossterm::execute!(io::stdout(), crossterm::terminal::Clear(ClearType::All)).unwrap();
+    crossterm::execute!(io::stdout(), crossterm::cursor::MoveTo(0, 0)).unwrap();
+    editor_draw_rows(terminal_state);
 }
 
 fn editor_append_row(chars: String, length: usize, terminal_state: &mut EditorState) {
@@ -240,19 +244,26 @@ fn editor_append_row(chars: String, length: usize, terminal_state: &mut EditorSt
     terminal_state.numrows += 1;
 }
 
+fn editor_scroll(terminal_state: &mut EditorState) {
+    if terminal_state.cy < terminal_state.rowoff.into() {
+        terminal_state.rowoff = terminal_state.cy as u16;
+    }
+
+    if terminal_state.cy >= (terminal_state.rowoff + terminal_state.dimensions.rows) as usize {
+        terminal_state.rowoff =
+            (terminal_state.cy as u16 - terminal_state.dimensions.rows + 1) as u16;
+    }
+}
+
 fn editor_open(terminal_state: &mut EditorState, filename: &str) {
     if let Ok(mut f) = File::open(filename) {
         let mut buffer = String::new();
         f.read_to_string(&mut buffer).unwrap();
 
-        let mut cap = 0;
         buffer.lines().for_each(|l| {
-            if cap <= terminal_state.dimensions.rows {
-                let new_row = Erow::new();
-                terminal_state.row.push(new_row);
-                editor_append_row(l.to_string(), l.len(), terminal_state);
-                cap += 1;
-            }
+            let new_row = Erow::new();
+            terminal_state.row.push(new_row);
+            editor_append_row(l.to_string(), l.len(), terminal_state);
         });
     }
 }
@@ -261,20 +272,26 @@ fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let mut term = EditorState::new();
     crossterm::terminal::enable_raw_mode()?;
-    refresh_screen();
+    refresh_screen(&mut term);
     if args.len() == 2 {
         editor_open(&mut term, &args[1]);
     }
-    editor_draw_rows(&term);
 
     loop {
+        refresh_screen(&mut term);
         display_editor_mode(&mut term);
+        crossterm::execute!(
+            io::stdout(),
+            crossterm::cursor::MoveTo(term.cx as u16, term.cy as u16),
+        )
+        .unwrap();
+
         if process_char(&mut term)? {
             break;
         }
     }
 
     crossterm::terminal::disable_raw_mode()?;
-    refresh_screen();
+    refresh_screen(&mut term);
     Ok(())
 }
