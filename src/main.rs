@@ -56,8 +56,8 @@ impl EditorState {
 
         Self {
             dimensions,
-            cx: 1,
-            cy: 1,
+            cx: 0,
+            cy: 0,
             mode: EditorMode::NORMAL,
             numrows: 0,
             row,
@@ -78,7 +78,7 @@ fn display_editor_mode(terminal_state: &mut EditorState) {
     write!(stdout, "{:?}", terminal_state.mode).unwrap();
     crossterm::execute!(
         stdout,
-        MoveTo(terminal_state.cx as u16 - 1, terminal_state.cy as u16 - 1)
+        MoveTo(terminal_state.cx as u16, terminal_state.cy as u16)
     )
     .unwrap();
 }
@@ -86,8 +86,8 @@ fn display_editor_mode(terminal_state: &mut EditorState) {
 fn resize_terminal() -> WindowSize {
     if let Ok((height, width)) = size() {
         let dimensions = WindowSize {
-            rows: width - 1,
-            columns: height - 1,
+            rows: width,
+            columns: height,
         };
 
         return dimensions;
@@ -112,18 +112,18 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
     let mut stdout = io::stdout();
     match key.code {
         KeyCode::Char('j') => {
-            if terminal_state.cy <= terminal_state.numrows as usize - 1 {
+            if terminal_state.cy <= terminal_state.numrows as usize {
                 terminal_state.cy = terminal_state.cy + 1;
             }
         }
         KeyCode::Char('h') => {
-            if terminal_state.cx > 1 {
+            if terminal_state.cx > 0 {
                 terminal_state.cx = terminal_state.cx - 1;
             }
         }
         KeyCode::Char('k') => {
-            if terminal_state.cy > 1 {
-                terminal_state.cy = terminal_state.cy - 1;
+            if terminal_state.cy > 0 {
+                terminal_state.cy -= 1;
             }
         }
         KeyCode::Char('l') => {
@@ -135,7 +135,7 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
     }
     crossterm::execute!(
         stdout,
-        MoveTo(terminal_state.cx as u16 - 1, terminal_state.cy as u16 - 1)
+        MoveTo(terminal_state.cx as u16, terminal_state.cy as u16)
     )
     .unwrap();
 }
@@ -278,14 +278,13 @@ fn main() -> io::Result<()> {
     }
 
     loop {
-        refresh_screen(&mut term);
         display_editor_mode(&mut term);
+        refresh_screen(&mut term);
         crossterm::execute!(
             io::stdout(),
-            crossterm::cursor::MoveTo(term.cx as u16, term.cy as u16),
+            crossterm::cursor::MoveTo(term.cx as u16, term.cy as u16 - term.rowoff),
         )
         .unwrap();
-
         if process_char(&mut term)? {
             break;
         }
