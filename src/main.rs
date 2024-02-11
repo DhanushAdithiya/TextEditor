@@ -1,6 +1,7 @@
 use crossterm::cursor::MoveTo;
 use crossterm::event::{poll, read, Event::Key, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{size, Clear, ClearType};
+use crossterm::terminal::{self, size, Clear, ClearType};
+use nix::libc::IF_LINK_MODE_TESTING;
 use std::time::Duration;
 use std::{
     env,
@@ -47,6 +48,7 @@ struct EditorState {
     row: Vec<Erow>,
     numrows: u16,
     rowoff: u16,
+    coloff: u16,
 }
 
 impl EditorState {
@@ -62,6 +64,7 @@ impl EditorState {
             numrows: 0,
             row,
             rowoff: 0,
+            coloff: 0,
         }
     }
 }
@@ -71,6 +74,7 @@ fn display_editor_mode(terminal_state: &mut EditorState) {
     let dimensions = resize_terminal();
 
     crossterm::execute!(stdout, MoveTo(0, terminal_state.dimensions.rows)).unwrap();
+
     crossterm::execute!(stdout, Clear(ClearType::CurrentLine)).unwrap();
     terminal_state.dimensions = dimensions;
 
@@ -127,9 +131,7 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
             }
         }
         KeyCode::Char('l') => {
-            if terminal_state.cx < terminal_state.dimensions.columns as usize {
-                terminal_state.cx = terminal_state.cx + 1;
-            }
+            terminal_state.cx += 1
         }
         _ => {}
     }
@@ -143,13 +145,26 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
 fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
     match key {
         '$' => {
-            terminal_state.cx = terminal_state.dimensions.columns.into();
+            if (terminal_state.row[(terminal_state.rowoff as usize + terminal_state.cy) as usize]
+                .size)
+                > 0
+            {
+                terminal_state.cx = (terminal_state.row
+                    [(terminal_state.rowoff as usize + terminal_state.cy) as usize]
+                    .size)
+                    - 1;
+            } else {
+                terminal_state.cx = 0;
+            }
+
             move_cursor(terminal_state);
         }
         '_' => {
-            terminal_state.cx = 1;
+            terminal_state.cx = 0;
             move_cursor(terminal_state);
         }
+        'w' => {}
+        'b' => {}
         _ => {}
     }
 }
@@ -215,11 +230,21 @@ fn editor_draw_rows(terminal_state: &EditorState) {
                 buffer.push_str("~");
             }
         } else {
-            let mut length = terminal_state.row[filerow as usize].size;
-            if length > terminal_state.dimensions.columns as usize {
-                length = terminal_state.dimensions.columns as usize;
+            let mut len = terminal_state.row[filerow as usize].size;
+            if len < terminal_state.coloff as usize{
+                continue;
             }
-            buffer.push_str(&terminal_state.row[filerow as usize].chars[..length]);
+            len -= terminal_state.coloff as usize;
+            let start = terminal_state.coloff as usize;
+
+            let end = start + if len >= terminal_state.dimensions.columns as usize {
+                terminal_state.dimensions.columns as usize
+            } else {
+                len
+            };
+
+            buffer.push_str(&terminal_state.row[filerow as usize].chars[start..end])
+
         }
 
         if i < terminal_state.dimensions.rows - 1 {
@@ -249,9 +274,18 @@ fn editor_scroll(terminal_state: &mut EditorState) {
         terminal_state.rowoff = terminal_state.cy as u16;
     }
 
+    if terminal_state.cx < terminal_state.coloff.into() {
+        terminal_state.coloff = terminal_state.cx as u16;
+    }
+
     if terminal_state.cy >= (terminal_state.rowoff + terminal_state.dimensions.rows) as usize {
         terminal_state.rowoff =
             (terminal_state.cy as u16 - terminal_state.dimensions.rows + 1) as u16;
+    }
+
+    if terminal_state.cx >= (terminal_state.coloff + terminal_state.dimensions.columns) as usize {
+        terminal_state.coloff =
+            (terminal_state.cx as u16 - terminal_state.dimensions.columns + 1) as u16;
     }
 }
 
@@ -278,11 +312,11 @@ fn main() -> io::Result<()> {
     }
 
     loop {
-        display_editor_mode(&mut term);
+        //display_editor_mode(&mut term);
         refresh_screen(&mut term);
         crossterm::execute!(
             io::stdout(),
-            crossterm::cursor::MoveTo(term.cx as u16, term.cy as u16 - term.rowoff),
+            crossterm::cursor::MoveTo(term.cx as u16 - term.coloff, term.cy as u16 - term.rowoff),
         )
         .unwrap();
         if process_char(&mut term)? {
