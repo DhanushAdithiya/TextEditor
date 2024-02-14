@@ -1,7 +1,8 @@
 use crossterm::cursor::MoveTo;
 use crossterm::event::{poll, read, Event::Key, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{self, size, Clear, ClearType};
-use nix::libc::IF_LINK_MODE_TESTING;
+use crossterm::terminal::{size, Clear, ClearType};
+use crossterm::QueueableCommand;
+use io::Result;
 use std::time::Duration;
 use std::{
     env,
@@ -113,7 +114,6 @@ fn read_character() -> Option<KeyEvent> {
 }
 
 fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
-    let mut stdout = io::stdout();
     match key.code {
         KeyCode::Char('j') => {
             if terminal_state.cy <= terminal_state.numrows as usize {
@@ -130,16 +130,9 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
                 terminal_state.cy -= 1;
             }
         }
-        KeyCode::Char('l') => {
-            terminal_state.cx += 1
-        }
+        KeyCode::Char('l') => terminal_state.cx += 1,
         _ => {}
     }
-    crossterm::execute!(
-        stdout,
-        MoveTo(terminal_state.cx as u16, terminal_state.cy as u16)
-    )
-    .unwrap();
 }
 
 fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
@@ -214,7 +207,7 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
     Ok(false)
 }
 
-fn editor_draw_rows(terminal_state: &EditorState) {
+fn editor_draw_rows(terminal_state: &EditorState) -> Result<()> {
     let mut buffer = String::new();
     let mut stdout = io::stdout();
     for i in 0..terminal_state.dimensions.rows {
@@ -231,35 +224,44 @@ fn editor_draw_rows(terminal_state: &EditorState) {
             }
         } else {
             let mut len = terminal_state.row[filerow as usize].size;
-            if len < terminal_state.coloff as usize{
+            if len < terminal_state.coloff as usize {
                 continue;
             }
             len -= terminal_state.coloff as usize;
             let start = terminal_state.coloff as usize;
-
-            let end = start + if len >= terminal_state.dimensions.columns as usize {
-                terminal_state.dimensions.columns as usize
-            } else {
-                len
-            };
-
-            buffer.push_str(&terminal_state.row[filerow as usize].chars[start..end])
-
+            let end = start
+                + if len >= terminal_state.dimensions.columns as usize {
+                    terminal_state.dimensions.columns as usize
+                } else {
+                    len
+                };
+            stdout
+                .queue(crossterm::cursor::MoveTo(0, i))?
+                .queue(crossterm::style::Print(
+                    &terminal_state.row[filerow as usize].chars[start..end].to_string(),
+                ))?;
         }
 
         if i < terminal_state.dimensions.rows - 1 {
             buffer.push_str("\r\n");
         }
     }
-    write!(stdout, "{buffer}").unwrap();
-    crossterm::execute!(io::stdout(), MoveTo(0, 0)).unwrap();
+    Ok(())
 }
 
 fn refresh_screen(terminal_state: &mut EditorState) {
     editor_scroll(terminal_state);
-    crossterm::execute!(io::stdout(), crossterm::terminal::Clear(ClearType::All)).unwrap();
-    crossterm::execute!(io::stdout(), crossterm::cursor::MoveTo(0, 0)).unwrap();
-    editor_draw_rows(terminal_state);
+    clear().unwrap();
+    editor_draw_rows(terminal_state).unwrap();
+}
+
+fn clear() -> Result<()> {
+    let mut stdout = io::stdout();
+    stdout
+        .queue(crossterm::terminal::Clear(ClearType::All))?
+        .queue(crossterm::cursor::MoveTo(0, 0))?;
+
+    Ok(())
 }
 
 fn editor_append_row(chars: String, length: usize, terminal_state: &mut EditorState) {
