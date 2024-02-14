@@ -116,8 +116,12 @@ fn read_character() -> Option<KeyEvent> {
 fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
     match key.code {
         KeyCode::Char('j') => {
+            let next_line = terminal_state.row[terminal_state.cy as usize + 1].size;
             if terminal_state.cy <= terminal_state.numrows as usize {
                 terminal_state.cy = terminal_state.cy + 1;
+                if terminal_state.cx > next_line {
+                    terminal_state.cx = next_line;
+                }
             }
         }
         KeyCode::Char('h') => {
@@ -126,11 +130,20 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
             }
         }
         KeyCode::Char('k') => {
+            let prev_line = terminal_state.row[terminal_state.cy as usize - 1].size;
             if terminal_state.cy > 0 {
                 terminal_state.cy -= 1;
+                if terminal_state.cx > prev_line {
+                    terminal_state.cx = prev_line;
+                }
             }
         }
-        KeyCode::Char('l') => terminal_state.cx += 1,
+        KeyCode::Char('l') => {
+            let line = terminal_state.row[terminal_state.cy as usize].size;
+            if terminal_state.cx < line {
+                terminal_state.cx += 1;
+            }
+        }
         _ => {}
     }
 }
@@ -138,14 +151,8 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
 fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
     match key {
         '$' => {
-            if (terminal_state.row[(terminal_state.rowoff as usize + terminal_state.cy) as usize]
-                .size)
-                > 0
-            {
-                terminal_state.cx = (terminal_state.row
-                    [(terminal_state.rowoff as usize + terminal_state.cy) as usize]
-                    .size)
-                    - 1;
+            if (terminal_state.row[terminal_state.cy as usize].size) > 0 {
+                terminal_state.cx = (terminal_state.row[terminal_state.cy].size) - 1;
             } else {
                 terminal_state.cx = 0;
             }
@@ -327,6 +334,6 @@ fn main() -> io::Result<()> {
     }
 
     crossterm::terminal::disable_raw_mode()?;
-    refresh_screen(&mut term);
+    clear()?;
     Ok(())
 }
