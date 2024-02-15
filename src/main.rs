@@ -4,12 +4,7 @@ use crossterm::terminal::{size, Clear, ClearType};
 use crossterm::QueueableCommand;
 use io::Result;
 use std::time::Duration;
-use std::{
-    env,
-    fs::File,
-    io,
-    io::{Read, Write},
-};
+use std::{env, fmt, fs::File, io, io::Read};
 
 const VERSION: &str = "0.0.1";
 const TABSTOP: usize = 4;
@@ -18,6 +13,12 @@ const TABSTOP: usize = 4;
 enum EditorMode {
     NORMAL,
     INSERT,
+}
+
+impl fmt::Display for EditorMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Debug)]
@@ -77,22 +78,20 @@ impl EditorState {
     }
 }
 
-fn display_editor_mode(terminal_state: &mut EditorState) {
+fn display_editor_mode(terminal_state: &mut EditorState) -> Result<()> {
     let mut stdout = io::stdout();
-    let dimensions = resize_terminal();
+    stdout
+        .queue(crossterm::cursor::MoveTo(
+            1,
+            terminal_state.dimensions.rows + 1,
+        ))?
+        .queue(crossterm::style::SetBackgroundColor(
+            crossterm::style::Color::Red,
+        ))?
+        .queue(crossterm::style::Print(&terminal_state.mode))?
+        .queue(crossterm::style::ResetColor)?;
 
-    crossterm::execute!(stdout, MoveTo(0, terminal_state.dimensions.rows)).unwrap();
-
-    crossterm::execute!(stdout, Clear(ClearType::CurrentLine)).unwrap();
-    terminal_state.dimensions = dimensions;
-
-    crossterm::execute!(stdout, MoveTo(2, terminal_state.dimensions.rows)).unwrap();
-    write!(stdout, "{:?}", terminal_state.mode).unwrap();
-    crossterm::execute!(
-        stdout,
-        MoveTo(terminal_state.cx as u16, terminal_state.cy as u16)
-    )
-    .unwrap();
+    Ok(())
 }
 
 fn resize_terminal() -> WindowSize {
@@ -223,19 +222,19 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
 }
 
 fn editor_draw_rows(terminal_state: &EditorState) -> Result<()> {
-    let mut buffer = String::new();
     let mut stdout = io::stdout();
     for i in 0..terminal_state.dimensions.rows {
         let filerow = i + terminal_state.rowoff;
         if filerow >= terminal_state.numrows {
             if i == terminal_state.dimensions.rows / 3 && terminal_state.numrows == 0 {
-                let welcome_str = format!("BREAD EDITOR - VERSION : {VERSION}");
+                let welcome_str = format!("BREAD EDITOR - VERSION : {VERSION}\r\n");
                 let w = (terminal_state.dimensions.columns as usize - welcome_str.len()) / 2;
                 let padding = format!("~{:width$}", " ", width = w);
-                buffer.push_str(&padding);
-                buffer.push_str(&welcome_str);
+                stdout
+                    .queue(crossterm::style::Print(padding))?
+                    .queue(crossterm::style::Print(welcome_str))?;
             } else {
-                buffer.push_str("~");
+                stdout.queue(crossterm::style::Print("~\r\n"))?;
             }
         } else {
             let mut len = terminal_state.row[filerow as usize].rsize;
@@ -256,11 +255,8 @@ fn editor_draw_rows(terminal_state: &EditorState) -> Result<()> {
                     &terminal_state.row[filerow as usize].render[start..end],
                 ))?;
         }
-
-        if i < terminal_state.dimensions.rows - 1 {
-            buffer.push_str("\r\n");
-        }
     }
+    //stdout.queue(crossterm::style::Print("\r\n"))?;
     Ok(())
 }
 
@@ -374,6 +370,7 @@ fn editor_open(terminal_state: &mut EditorState, filename: &str) {
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let mut term = EditorState::new();
+    term.dimensions.rows -= 1;
     crossterm::terminal::enable_raw_mode()?;
     refresh_screen(&mut term);
     if args.len() == 2 {
@@ -382,6 +379,7 @@ fn main() -> io::Result<()> {
 
     loop {
         refresh_screen(&mut term);
+        display_editor_mode(&mut term)?;
         crossterm::execute!(
             io::stdout(),
             crossterm::cursor::MoveTo(term.rx as u16 - term.coloff, term.cy as u16 - term.rowoff),
