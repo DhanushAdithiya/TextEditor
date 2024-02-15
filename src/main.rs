@@ -12,6 +12,7 @@ use std::{
 };
 
 const VERSION: &str = "0.0.1";
+const TABSTOP: usize = 4;
 
 #[derive(Debug, PartialEq)]
 enum EditorMode {
@@ -23,6 +24,8 @@ enum EditorMode {
 struct Erow {
     size: usize,
     chars: String,
+    rsize: usize,
+    render: String,
 }
 
 impl Erow {
@@ -30,6 +33,8 @@ impl Erow {
         Self {
             size: 0,
             chars: String::from(""),
+            rsize: 0,
+            render: String::from(""),
         }
     }
 }
@@ -45,6 +50,7 @@ struct EditorState {
     dimensions: WindowSize,
     cx: usize,
     cy: usize,
+    rx: usize,
     mode: EditorMode,
     row: Vec<Erow>,
     numrows: u16,
@@ -61,6 +67,7 @@ impl EditorState {
             dimensions,
             cx: 0,
             cy: 0,
+            rx: 0,
             mode: EditorMode::NORMAL,
             numrows: 0,
             row,
@@ -114,10 +121,12 @@ fn read_character() -> Option<KeyEvent> {
 }
 
 fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
+    //TODO
     match key.code {
         KeyCode::Char('j') => {
-            let next_line = terminal_state.row[terminal_state.cy as usize + 1].size;
-            if terminal_state.cy <= terminal_state.numrows as usize {
+            //BUG : out of bounds error
+            if terminal_state.cy < terminal_state.numrows as usize {
+                let next_line = terminal_state.row[terminal_state.cy as usize + 1].rsize;
                 terminal_state.cy = terminal_state.cy + 1;
                 if terminal_state.cx > next_line {
                     terminal_state.cx = next_line;
@@ -130,8 +139,8 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
             }
         }
         KeyCode::Char('k') => {
-            let prev_line = terminal_state.row[terminal_state.cy as usize - 1].size;
             if terminal_state.cy > 0 {
+                let prev_line = terminal_state.row[terminal_state.cy as usize - 1].rsize;
                 terminal_state.cy -= 1;
                 if terminal_state.cx > prev_line {
                     terminal_state.cx = prev_line;
@@ -139,7 +148,7 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
             }
         }
         KeyCode::Char('l') => {
-            let line = terminal_state.row[terminal_state.cy as usize].size;
+            let line = terminal_state.row[terminal_state.cy as usize].rsize;
             if terminal_state.cx < line {
                 terminal_state.cx += 1;
             }
@@ -230,7 +239,7 @@ fn editor_draw_rows(terminal_state: &EditorState) -> Result<()> {
                 buffer.push_str("~");
             }
         } else {
-            let mut len = terminal_state.row[filerow as usize].size;
+            let mut len = terminal_state.row[filerow as usize].rsize;
             if len < terminal_state.coloff as usize {
                 continue;
             }
@@ -245,7 +254,7 @@ fn editor_draw_rows(terminal_state: &EditorState) -> Result<()> {
             stdout
                 .queue(crossterm::cursor::MoveTo(0, i))?
                 .queue(crossterm::style::Print(
-                    &terminal_state.row[filerow as usize].chars[start..end].to_string(),
+                    &terminal_state.row[filerow as usize].render[start..end],
                 ))?;
         }
 
@@ -254,6 +263,43 @@ fn editor_draw_rows(terminal_state: &EditorState) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn editor_update_row(row: &mut Erow) {
+    //let mut tabs = 0;
+    //for i in 0..row.size {
+    //    if row.chars.chars().nth(i).unwrap() == '\t' {
+    //        tabs += 1;
+    //    }
+    //}
+
+    let mut idx = 0;
+    for i in 0..row.size {
+        if row.chars.chars().nth(i).unwrap() == '\t' {
+            row.render.push(' ');
+            idx += 1;
+            while idx % TABSTOP != 0 {
+                row.render.push(' ');
+                idx += 1
+            }
+        } else {
+            row.render.push(row.chars.chars().nth(i).unwrap());
+            idx += 1;
+        }
+    }
+    row.rsize = idx;
+}
+
+fn editor_row_cx_to_rx(row: &mut Erow, cx: usize) -> usize {
+    let mut rx = 0;
+    for i in 0..cx {
+        if row.chars.chars().nth(i).unwrap() == '\t' {
+            rx += (TABSTOP - 1) - (rx % TABSTOP);
+        }
+        rx += 1;
+    }
+
+    rx
 }
 
 fn refresh_screen(terminal_state: &mut EditorState) {
@@ -276,15 +322,28 @@ fn editor_append_row(chars: String, length: usize, terminal_state: &mut EditorSt
     terminal_state.row[loc].size = length;
     terminal_state.row[loc].chars = chars;
     terminal_state.numrows += 1;
+
+    terminal_state.row[loc].rsize = 0;
+    terminal_state.row[loc].render = String::new();
+    editor_update_row(&mut terminal_state.row[loc]);
 }
 
 fn editor_scroll(terminal_state: &mut EditorState) {
+    terminal_state.rx = 0;
+
+    if terminal_state.cy < terminal_state.numrows.into() {
+        terminal_state.rx = editor_row_cx_to_rx(
+            &mut terminal_state.row[terminal_state.cy],
+            terminal_state.cx,
+        );
+    }
+
     if terminal_state.cy < terminal_state.rowoff.into() {
         terminal_state.rowoff = terminal_state.cy as u16;
     }
 
-    if terminal_state.cx < terminal_state.coloff.into() {
-        terminal_state.coloff = terminal_state.cx as u16;
+    if terminal_state.rx < terminal_state.coloff.into() {
+        terminal_state.coloff = terminal_state.rx as u16;
     }
 
     if terminal_state.cy >= (terminal_state.rowoff + terminal_state.dimensions.rows) as usize {
@@ -292,9 +351,9 @@ fn editor_scroll(terminal_state: &mut EditorState) {
             (terminal_state.cy as u16 - terminal_state.dimensions.rows + 1) as u16;
     }
 
-    if terminal_state.cx >= (terminal_state.coloff + terminal_state.dimensions.columns) as usize {
+    if terminal_state.rx >= (terminal_state.coloff + terminal_state.dimensions.columns) as usize {
         terminal_state.coloff =
-            (terminal_state.cx as u16 - terminal_state.dimensions.columns + 1) as u16;
+            (terminal_state.rx as u16 - terminal_state.dimensions.columns + 1) as u16;
     }
 }
 
@@ -321,11 +380,10 @@ fn main() -> io::Result<()> {
     }
 
     loop {
-        //display_editor_mode(&mut term);
         refresh_screen(&mut term);
         crossterm::execute!(
             io::stdout(),
-            crossterm::cursor::MoveTo(term.cx as u16 - term.coloff, term.cy as u16 - term.rowoff),
+            crossterm::cursor::MoveTo(term.rx as u16 - term.coloff, term.cy as u16 - term.rowoff),
         )
         .unwrap();
         if process_char(&mut term)? {
