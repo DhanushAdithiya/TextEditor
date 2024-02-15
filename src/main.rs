@@ -124,8 +124,7 @@ fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
     //TODO
     match key.code {
         KeyCode::Char('j') => {
-            //BUG : out of bounds error
-            if terminal_state.cy < terminal_state.numrows as usize {
+            if terminal_state.cy < terminal_state.numrows as usize - 1 {
                 let next_line = terminal_state.row[terminal_state.cy as usize + 1].rsize;
                 terminal_state.cy = terminal_state.cy + 1;
                 if terminal_state.cx > next_line {
@@ -293,10 +292,12 @@ fn editor_update_row(row: &mut Erow) {
 fn editor_row_cx_to_rx(row: &mut Erow, cx: usize) -> usize {
     let mut rx = 0;
     for i in 0..cx {
-        if row.chars.chars().nth(i).unwrap() == '\t' {
-            rx += (TABSTOP - 1) - (rx % TABSTOP);
+        if let Some(c) = row.chars.chars().nth(i) {
+            if c == '\t' {
+                rx += (TABSTOP - 1) - (rx % TABSTOP);
+            }
+            rx += 1;
         }
-        rx += 1;
     }
 
     rx
