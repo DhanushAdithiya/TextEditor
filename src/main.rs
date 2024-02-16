@@ -1,5 +1,6 @@
 use crossterm::cursor::MoveTo;
 use crossterm::event::{poll, read, Event::Key, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::style::{style, Attribute, Color, Stylize};
 use crossterm::terminal::{size, Clear, ClearType};
 use crossterm::QueueableCommand;
 use io::Result;
@@ -57,6 +58,7 @@ struct EditorState {
     numrows: u16,
     rowoff: u16,
     coloff: u16,
+    filename: Option<String>,
 }
 
 impl EditorState {
@@ -74,22 +76,42 @@ impl EditorState {
             row,
             rowoff: 0,
             coloff: 0,
+            filename: None,
         }
     }
 }
 
 fn display_editor_mode(terminal_state: &mut EditorState) -> Result<()> {
     let mut stdout = io::stdout();
+    let status;
+
+    if let Some(filename) = &terminal_state.filename {
+        let status_content = format!("{} | {}", terminal_state.mode, filename);
+        let padding = format!(
+            "~{:width$}",
+            " ",
+            width = terminal_state.dimensions.columns as usize - status_content.len() - 1
+        );
+        status = format!("{status_content}{}", padding)
+            .with(Color::Black)
+            .on(Color::White);
+    } else {
+        let padding = format!(
+            "~{:width$}",
+            " ",
+            width =
+                terminal_state.dimensions.columns as usize - terminal_state.mode.to_string().len()
+        );
+        status = format!("{}|{}", terminal_state.mode, padding)
+            .with(Color::Black)
+            .on(Color::White);
+    }
     stdout
         .queue(crossterm::cursor::MoveTo(
-            1,
+            0,
             terminal_state.dimensions.rows + 1,
         ))?
-        .queue(crossterm::style::SetBackgroundColor(
-            crossterm::style::Color::Red,
-        ))?
-        .queue(crossterm::style::Print(&terminal_state.mode))?
-        .queue(crossterm::style::ResetColor)?;
+        .queue(crossterm::style::Print(status))?;
 
     Ok(())
 }
@@ -356,6 +378,7 @@ fn editor_scroll(terminal_state: &mut EditorState) {
 
 fn editor_open(terminal_state: &mut EditorState, filename: &str) {
     if let Ok(mut f) = File::open(filename) {
+        terminal_state.filename = Some(filename.to_string());
         let mut buffer = String::new();
         f.read_to_string(&mut buffer).unwrap();
 
