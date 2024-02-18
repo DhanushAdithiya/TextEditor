@@ -1,7 +1,8 @@
+//
 use crossterm::cursor::MoveTo;
 use crossterm::event::{poll, read, Event::Key, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::style::{style, Attribute, Color, Stylize};
-use crossterm::terminal::{size, Clear, ClearType};
+use crossterm::style::{Color, Stylize};
+use crossterm::terminal::{size, ClearType};
 use crossterm::QueueableCommand;
 use io::Result;
 use std::time::Duration;
@@ -81,7 +82,7 @@ impl EditorState {
     }
 }
 
-fn display_editor_mode(terminal_state: &mut EditorState) -> Result<()> {
+fn editor_status_line(terminal_state: &mut EditorState) -> Result<()> {
     let mut stdout = io::stdout();
     let status;
 
@@ -141,42 +142,6 @@ fn read_character() -> Option<KeyEvent> {
     }
 }
 
-fn process_movement(terminal_state: &mut EditorState, key: KeyEvent) {
-    //TODO
-    match key.code {
-        KeyCode::Char('j') => {
-            if terminal_state.cy < terminal_state.numrows as usize - 1 {
-                let next_line = terminal_state.row[terminal_state.cy as usize + 1].rsize;
-                terminal_state.cy = terminal_state.cy + 1;
-                if terminal_state.cx > next_line {
-                    terminal_state.cx = next_line;
-                }
-            }
-        }
-        KeyCode::Char('h') => {
-            if terminal_state.cx > 0 {
-                terminal_state.cx = terminal_state.cx - 1;
-            }
-        }
-        KeyCode::Char('k') => {
-            if terminal_state.cy > 0 {
-                let prev_line = terminal_state.row[terminal_state.cy as usize - 1].rsize;
-                terminal_state.cy -= 1;
-                if terminal_state.cx > prev_line {
-                    terminal_state.cx = prev_line;
-                }
-            }
-        }
-        KeyCode::Char('l') => {
-            let line = terminal_state.row[terminal_state.cy as usize].rsize;
-            if terminal_state.cx < line {
-                terminal_state.cx += 1;
-            }
-        }
-        _ => {}
-    }
-}
-
 fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
     match key {
         '$' => {
@@ -194,6 +159,39 @@ fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
         }
         'w' => {}
         'b' => {}
+        'j' => {
+            if terminal_state.cy < terminal_state.numrows as usize - 1 {
+                let next_line = terminal_state.row[terminal_state.cy as usize + 1].rsize;
+                terminal_state.cy = terminal_state.cy + 1;
+                if terminal_state.cx > next_line {
+                    terminal_state.cx = next_line;
+                }
+            }
+            move_cursor(terminal_state);
+        }
+        'h' => {
+            if terminal_state.cx > 0 {
+                terminal_state.cx = terminal_state.cx - 1;
+            }
+            move_cursor(terminal_state);
+        }
+        'k' => {
+            if terminal_state.cy > 0 {
+                let prev_line = terminal_state.row[terminal_state.cy as usize - 1].rsize;
+                terminal_state.cy -= 1;
+                if terminal_state.cx > prev_line {
+                    terminal_state.cx = prev_line;
+                }
+            }
+            move_cursor(terminal_state);
+        }
+        'l' => {
+            let line = terminal_state.row[terminal_state.cy as usize].rsize;
+            if terminal_state.cx < line {
+                terminal_state.cx += 1;
+            }
+            move_cursor(terminal_state);
+        }
         _ => {}
     }
 }
@@ -207,37 +205,36 @@ fn move_cursor(terminal_state: &mut EditorState) {
 }
 
 fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
-    let mut c = None;
     match poll(Duration::from_millis(100)) {
         Ok(true) => match read_character() {
-            Some(key) => c = Some(key),
+            Some(key) => match key {
+                KeyEvent {
+                    code: KeyCode::Char('q'),
+                    modifiers: KeyModifiers::CONTROL,
+                    ..
+                } => return Ok(true),
+                KeyEvent {
+                    code: KeyCode::Char('i'),
+                    ..
+                } => terminal_state.mode = EditorMode::INSERT,
+                KeyEvent {
+                    code: KeyCode::Esc, ..
+                } => terminal_state.mode = EditorMode::NORMAL,
+                KeyEvent {
+                    code: KeyCode::Char(c),
+                    ..
+                } => {
+                    if terminal_state.mode == EditorMode::NORMAL {
+                        normal_mode_shortcuts(terminal_state, c);
+                    } else if terminal_state.mode == EditorMode::INSERT {
+                        editor_insert_char(terminal_state, c);
+                    }
+                }
+                _ => {}
+            },
             None => {}
         },
         _ => {}
-    }
-
-    match c {
-        Some(c) => match c.code {
-            KeyCode::Char('q') if c.modifiers.contains(KeyModifiers::CONTROL) => {
-                return Ok(true); // Exit the loop
-            }
-            KeyCode::Char('h') | KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Char('l')
-                if terminal_state.mode == EditorMode::NORMAL =>
-            {
-                process_movement(terminal_state, c)
-            }
-            KeyCode::Char('i') => {
-                terminal_state.mode = EditorMode::INSERT;
-            }
-            KeyCode::Esc => {
-                terminal_state.mode = EditorMode::NORMAL;
-            }
-            KeyCode::Char(c) if terminal_state.mode == EditorMode::NORMAL => {
-                normal_mode_shortcuts(terminal_state, c);
-            }
-            _ => {}
-        },
-        None => {}
     }
 
     Ok(false)
@@ -273,38 +270,37 @@ fn editor_draw_rows(terminal_state: &EditorState) -> Result<()> {
                 };
             stdout
                 .queue(crossterm::cursor::MoveTo(0, i))?
+                .queue(crossterm::terminal::Clear(ClearType::CurrentLine))?
                 .queue(crossterm::style::Print(
                     &terminal_state.row[filerow as usize].render[start..end],
                 ))?;
         }
     }
-    //stdout.queue(crossterm::style::Print("\r\n"))?;
     Ok(())
 }
 
 fn editor_update_row(row: &mut Erow) {
-    //let mut tabs = 0;
-    //for i in 0..row.size {
-    //    if row.chars.chars().nth(i).unwrap() == '\t' {
-    //        tabs += 1;
-    //    }
-    //}
-
+    let mut render = String::new();
     let mut idx = 0;
-    for i in 0..row.size {
-        if row.chars.chars().nth(i).unwrap() == '\t' {
-            row.render.push(' ');
-            idx += 1;
-            while idx % TABSTOP != 0 {
-                row.render.push(' ');
-                idx += 1
+    for c in row.chars.chars() {
+        match c {
+            '\t' => {
+                render.push(' ');
+                idx += 1;
+                while idx % TABSTOP != 0 {
+                    render.push(' ');
+                    idx += 1;
+                }
             }
-        } else {
-            row.render.push(row.chars.chars().nth(i).unwrap());
-            idx += 1;
+
+            _ => {
+                render.push(c);
+                idx += 1;
+            }
         }
     }
     row.rsize = idx;
+    row.render = render;
 }
 
 fn editor_row_cx_to_rx(row: &mut Erow, cx: usize) -> usize {
@@ -319,6 +315,28 @@ fn editor_row_cx_to_rx(row: &mut Erow, cx: usize) -> usize {
     }
 
     rx
+}
+
+fn editor_row_insert_char(row: &mut Erow, at: usize, key: char) {
+    if at >= row.size {
+        row.chars.push(key)
+    } else {
+        row.chars.insert(at, key);
+    }
+    row.size += 1;
+    editor_update_row(row);
+}
+
+fn editor_insert_char(terminal_state: &mut EditorState, key: char) {
+    if terminal_state.cy == terminal_state.numrows.into() {
+        editor_append_row(String::new(), 0, terminal_state);
+    }
+    editor_row_insert_char(
+        &mut terminal_state.row[terminal_state.cy],
+        terminal_state.cx,
+        key,
+    );
+    terminal_state.cx += 1;
 }
 
 fn refresh_screen(terminal_state: &mut EditorState) {
@@ -402,7 +420,7 @@ fn main() -> io::Result<()> {
 
     loop {
         refresh_screen(&mut term);
-        display_editor_mode(&mut term)?;
+        editor_status_line(&mut term)?;
         crossterm::execute!(
             io::stdout(),
             crossterm::cursor::MoveTo(term.rx as u16 - term.coloff, term.cy as u16 - term.rowoff),
