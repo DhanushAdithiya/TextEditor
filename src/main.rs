@@ -163,6 +163,7 @@ fn read_character() -> Option<KeyEvent> {
 
 fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
     match key {
+        'i' => terminal_state.mode = EditorMode::INSERT,
         '$' => {
             if (terminal_state.row[terminal_state.cy as usize].size) > 0 {
                 terminal_state.cx = (terminal_state.row[terminal_state.cy].size) - 1;
@@ -232,11 +233,6 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
                     modifiers: KeyModifiers::CONTROL,
                     ..
                 } => return Ok(true),
-
-                KeyEvent {
-                    code: KeyCode::Char('i'),
-                    ..
-                } => terminal_state.mode = EditorMode::INSERT,
 
                 KeyEvent {
                     code: KeyCode::Esc, ..
