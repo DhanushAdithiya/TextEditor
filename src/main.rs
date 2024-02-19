@@ -59,6 +59,7 @@ struct EditorState {
     rowoff: u16,
     coloff: u16,
     filename: Option<String>,
+    dirty: bool,
 }
 
 impl EditorState {
@@ -77,6 +78,7 @@ impl EditorState {
             rowoff: 0,
             coloff: 0,
             filename: None,
+            dirty: false,
         }
     }
 }
@@ -126,10 +128,11 @@ fn erow_to_string(terminal_state: &EditorState) -> String {
     buffer
 }
 
-fn editor_save(terminal_state: &EditorState) -> io::Result<()> {
+fn editor_save(terminal_state: &mut EditorState) -> io::Result<()> {
     if let Some(filename) = &terminal_state.filename {
         let buffer = erow_to_string(terminal_state);
         std::fs::write(filename, buffer)?;
+        terminal_state.dirty = false;
     } else {
     }
 
@@ -225,6 +228,7 @@ fn move_cursor(terminal_state: &mut EditorState) {
 }
 
 fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
+    static mut QUIT_TIMES: u8 = 2;
     match poll(Duration::from_millis(100)) {
         Ok(true) => match read_character() {
             Some(key) => match key {
@@ -232,7 +236,14 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
                     code: KeyCode::Char('q'),
                     modifiers: KeyModifiers::CONTROL,
                     ..
-                } => return Ok(true),
+                } => {
+                    if terminal_state.dirty && unsafe { QUIT_TIMES } > 0 {
+                        // TODO STATUS MESSAGE
+                        unsafe { QUIT_TIMES -= 1 }
+                    } else {
+                        return Ok(true);
+                    }
+                }
 
                 KeyEvent {
                     code: KeyCode::Esc, ..
@@ -352,6 +363,10 @@ fn editor_row_insert_char(row: &mut Erow, at: usize, key: char) {
 }
 
 fn editor_insert_char(terminal_state: &mut EditorState, key: char) {
+    if terminal_state.dirty == false {
+        terminal_state.dirty = true
+    }
+
     if terminal_state.cy == terminal_state.numrows.into() {
         editor_append_row(String::new(), 0, terminal_state);
     }
