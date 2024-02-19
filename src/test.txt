@@ -1,3 +1,0 @@
-0 tab stop
-	1 tab stop
-		2 tab stop

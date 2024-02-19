@@ -1,4 +1,3 @@
-//
 use crossterm::cursor::MoveTo;
 use crossterm::event::{poll, read, Event::Key, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::style::{Color, Stylize};
@@ -117,6 +116,26 @@ fn editor_status_line(terminal_state: &mut EditorState) -> Result<()> {
     Ok(())
 }
 
+fn erow_to_string(terminal_state: &EditorState) -> String {
+    let mut buffer = String::new();
+    for i in 0..terminal_state.numrows {
+        buffer.push_str(&terminal_state.row[i as usize].chars);
+        buffer.push('\n');
+    }
+
+    buffer
+}
+
+fn editor_save(terminal_state: &EditorState) -> io::Result<()> {
+    if let Some(filename) = &terminal_state.filename {
+        let buffer = erow_to_string(terminal_state);
+        std::fs::write(filename, buffer)?;
+    } else {
+    }
+
+    Ok(())
+}
+
 fn resize_terminal() -> WindowSize {
     if let Ok((height, width)) = size() {
         let dimensions = WindowSize {
@@ -213,13 +232,22 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
                     modifiers: KeyModifiers::CONTROL,
                     ..
                 } => return Ok(true),
+
                 KeyEvent {
                     code: KeyCode::Char('i'),
                     ..
                 } => terminal_state.mode = EditorMode::INSERT,
+
                 KeyEvent {
                     code: KeyCode::Esc, ..
                 } => terminal_state.mode = EditorMode::NORMAL,
+
+                KeyEvent {
+                    code: KeyCode::Char('s'),
+                    modifiers: KeyModifiers::CONTROL,
+                    ..
+                } => editor_save(terminal_state)?,
+
                 KeyEvent {
                     code: KeyCode::Char(c),
                     ..
