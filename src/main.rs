@@ -164,6 +164,12 @@ fn read_character() -> Option<KeyEvent> {
     }
 }
 
+fn delete_char(row: &mut Erow, at: usize) {
+    row.chars.remove(at - 1);
+    row.size -= 1;
+    editor_update_row(row);
+}
+
 fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
     match key {
         'i' => terminal_state.mode = EditorMode::INSERT,
@@ -228,7 +234,7 @@ fn move_cursor(terminal_state: &mut EditorState) {
 }
 
 fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
-    static mut QUIT_TIMES: u8 = 2;
+    static mut QUIT_TIMES: u8 = 1;
     match poll(Duration::from_millis(100)) {
         Ok(true) => match read_character() {
             Some(key) => match key {
@@ -254,6 +260,37 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
                     modifiers: KeyModifiers::CONTROL,
                     ..
                 } => editor_save(terminal_state)?,
+
+                KeyEvent {
+                    code: KeyCode::Backspace,
+                    ..
+                } => {
+                    terminal_state.dirty = true;
+
+                    if terminal_state.mode == EditorMode::INSERT {
+                        if terminal_state.cx > 0 {
+                            delete_char(
+                                &mut terminal_state.row[terminal_state.cy],
+                                terminal_state.cx,
+                            );
+                            terminal_state.cx -= 1;
+                        } else if terminal_state.cx == 0 && terminal_state.cy > 0 {
+                            let buffer = &terminal_state.row[terminal_state.cy].chars.clone();
+                            terminal_state.row[terminal_state.cy - 1]
+                                .chars
+                                .push_str(buffer);
+
+                            //terminal_state.row[terminal_state.cy - 1].chars.push('\n');
+                            terminal_state.row.remove(terminal_state.cy);
+                            terminal_state.numrows -= 1;
+                            editor_update_row(&mut terminal_state.row[terminal_state.cy - 1]);
+                            terminal_state.cy -= 1;
+                            terminal_state.cx = terminal_state.row[terminal_state.cy - 1].rsize;
+                        }
+                    } else if terminal_state.mode == EditorMode::NORMAL && terminal_state.cx > 0 {
+                        terminal_state.cx -= 1;
+                    }
+                }
 
                 KeyEvent {
                     code: KeyCode::Char(c),
@@ -378,6 +415,16 @@ fn editor_insert_char(terminal_state: &mut EditorState, key: char) {
     terminal_state.cx += 1;
 }
 
+fn change_cursor(terminal_state: &EditorState) -> Result<()> {
+    let mut stdout = io::stdout();
+    if terminal_state.mode == EditorMode::NORMAL {
+        stdout.queue(crossterm::cursor::SetCursorStyle::SteadyBlock)?;
+    } else if terminal_state.mode == EditorMode::INSERT {
+        stdout.queue(crossterm::cursor::SetCursorStyle::BlinkingBar)?;
+    }
+    Ok(())
+}
+
 fn refresh_screen(terminal_state: &mut EditorState) {
     editor_scroll(terminal_state);
     clear().unwrap();
@@ -459,6 +506,7 @@ fn main() -> io::Result<()> {
 
     loop {
         refresh_screen(&mut term);
+        change_cursor(&term)?;
         editor_status_line(&mut term)?;
         crossterm::execute!(
             io::stdout(),
