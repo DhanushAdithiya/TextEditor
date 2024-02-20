@@ -39,6 +39,15 @@ impl Erow {
             render: String::from(""),
         }
     }
+
+    fn from(chars: &str) -> Self {
+        Self {
+            size: chars.len(),
+            chars: String::from(chars),
+            rsize: 0,
+            render: String::from(""),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -216,7 +225,7 @@ fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
         }
         'l' => {
             let line = terminal_state.row[terminal_state.cy as usize].rsize;
-            if terminal_state.cx < line {
+            if terminal_state.cx <= line {
                 terminal_state.cx += 1;
             }
             move_cursor(terminal_state);
@@ -289,6 +298,30 @@ fn process_char(terminal_state: &mut EditorState) -> io::Result<bool> {
                         }
                     } else if terminal_state.mode == EditorMode::NORMAL && terminal_state.cx > 0 {
                         terminal_state.cx -= 1;
+                    }
+                }
+
+                KeyEvent {
+                    code: KeyCode::Enter,
+                    ..
+                } => {
+                    if terminal_state.mode == EditorMode::NORMAL {
+                        if terminal_state.cy <= terminal_state.numrows.into() {
+                            terminal_state.cy += 1;
+                        }
+                    } else if terminal_state.mode == EditorMode::INSERT {
+                        let buffer = Erow::from(
+                            &terminal_state.row[terminal_state.cy].chars[terminal_state.cx..],
+                        );
+                        terminal_state.row[terminal_state.cy]
+                            .chars
+                            .insert(terminal_state.cx, '\n');
+                        terminal_state.row.insert(terminal_state.cy + 1, buffer);
+                        terminal_state.numrows += 1;
+                        editor_update_row(&mut terminal_state.row[terminal_state.cy]);
+                        editor_update_row(&mut terminal_state.row[terminal_state.cy + 1]);
+                        terminal_state.cy += 1;
+                        terminal_state.cx = 0;
                     }
                 }
 
