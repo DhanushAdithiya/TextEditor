@@ -195,8 +195,110 @@ fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
             terminal_state.cx = 0;
             move_cursor(terminal_state);
         }
-        'w' => {}
-        'b' => {}
+        'w' => {
+            // REALLY DISGUSTING CODE
+            if terminal_state.row[terminal_state.cy]
+                .chars
+                .chars()
+                .nth(terminal_state.cx)
+                .unwrap()
+                .is_whitespace()
+                && !terminal_state.row[terminal_state.cy]
+                    .chars
+                    .chars()
+                    .nth(terminal_state.cx + 1)
+                    .unwrap()
+                    .is_whitespace()
+            {
+                terminal_state.cx += 1;
+            }
+            if terminal_state.row[terminal_state.cy]
+                .chars
+                .chars()
+                .nth(terminal_state.cx)
+                .unwrap()
+                .is_whitespace()
+                || terminal_state.row[terminal_state.cy]
+                    .chars
+                    .chars()
+                    .nth(terminal_state.cx + 1)
+                    .unwrap()
+                    .is_whitespace()
+            {
+                while terminal_state.row[terminal_state.cy]
+                    .chars
+                    .chars()
+                    .nth(terminal_state.cx + 1)
+                    .unwrap()
+                    .is_whitespace()
+                {
+                    terminal_state.cx += 1;
+                }
+            } else {
+                let mut iter = terminal_state.row[terminal_state.cy].chars[terminal_state.cx..]
+                    .split_whitespace();
+
+                iter.next();
+                if let Some(n_word) = iter.next() {
+                    terminal_state.cx = terminal_state.row[terminal_state.cy].chars
+                        [terminal_state.cx..]
+                        .find(n_word)
+                        .unwrap()
+                        + terminal_state.cx;
+                }
+            }
+        }
+        'b' => {
+            if terminal_state.row[terminal_state.cy]
+                .chars
+                .chars()
+                .nth(terminal_state.cx)
+                .unwrap()
+                .is_whitespace()
+                && !terminal_state.row[terminal_state.cy]
+                    .chars
+                    .chars()
+                    .nth(terminal_state.cx - 1)
+                    .unwrap()
+                    .is_whitespace()
+            {
+                terminal_state.cx -= 1;
+            }
+            if terminal_state.row[terminal_state.cy]
+                .chars
+                .chars()
+                .nth(terminal_state.cx)
+                .unwrap()
+                .is_whitespace()
+                || terminal_state.row[terminal_state.cy]
+                    .chars
+                    .chars()
+                    .nth(terminal_state.cx - 1)
+                    .unwrap()
+                    .is_whitespace()
+            {
+                while terminal_state.row[terminal_state.cy]
+                    .chars
+                    .chars()
+                    .nth(terminal_state.cx - 1)
+                    .unwrap()
+                    .is_whitespace()
+                {
+                    terminal_state.cx -= 1;
+                }
+            } else {
+                let mut iter = terminal_state.row[terminal_state.cy].chars[..terminal_state.cx]
+                    .split_whitespace();
+
+                iter.next();
+                if let Some(n_word) = iter.next() {
+                    terminal_state.cx = terminal_state.row[terminal_state.cy].chars
+                        [..terminal_state.cx]
+                        .find(n_word)
+                        .unwrap()
+                }
+            }
+        }
         'j' => {
             if terminal_state.cy < terminal_state.numrows as usize - 1 {
                 let next_line = terminal_state.row[terminal_state.cy as usize + 1].rsize;
