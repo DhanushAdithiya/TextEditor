@@ -107,13 +107,13 @@ fn editor_status_line(terminal_state: &mut EditorState) -> Result<()> {
             .with(Color::Black)
             .on(Color::White);
     } else {
+        let status_content = format!("{}", terminal_state.mode);
         let padding = format!(
             "~{:width$}",
             " ",
-            width =
-                terminal_state.dimensions.columns as usize - terminal_state.mode.to_string().len()
+            width = terminal_state.dimensions.columns as usize - status_content.len() - 1
         );
-        status = format!("{}|{}", terminal_state.mode, padding)
+        status = format!("{status_content}{}", padding)
             .with(Color::Black)
             .on(Color::White);
     }
@@ -181,7 +181,15 @@ fn delete_char(row: &mut Erow, at: usize) {
 
 fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
     match key {
-        'i' => terminal_state.mode = EditorMode::INSERT,
+        'i' => {
+            terminal_state.mode = EditorMode::INSERT;
+            if terminal_state.numrows == 0 {
+                // This is to prevent out of bounds error when we create a new file and try to append text to it.
+                let new_row = Erow::new();
+                terminal_state.row.push(new_row);
+                editor_append_row(String::new(), 0, terminal_state);
+            }
+        }
         '$' => {
             if (terminal_state.row[terminal_state.cy as usize].size) > 0 {
                 terminal_state.cx = (terminal_state.row[terminal_state.cy].size) - 1;
@@ -300,7 +308,9 @@ fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
             }
         }
         'j' => {
-            if terminal_state.cy < terminal_state.numrows as usize - 1 {
+            if terminal_state.numrows > 0 && terminal_state.cy < terminal_state.numrows as usize - 1
+            {
+                // The -1 is required as the dimensions are 0 indexed.
                 let next_line = terminal_state.row[terminal_state.cy as usize + 1].rsize;
                 terminal_state.cy = terminal_state.cy + 1;
                 if terminal_state.cx > next_line {
@@ -460,7 +470,7 @@ fn editor_draw_rows(terminal_state: &EditorState) -> Result<()> {
                     .queue(crossterm::style::Print(padding))?
                     .queue(crossterm::style::Print(welcome_str))?;
             } else {
-                stdout.queue(crossterm::style::Print("~\r\n"))?;
+                stdout.queue(crossterm::style::Print("ba~\r\n"))?;
             }
         } else {
             let mut len = terminal_state.row[filerow as usize].rsize;
