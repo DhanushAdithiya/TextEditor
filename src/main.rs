@@ -187,7 +187,12 @@ fn normal_mode_shortcuts(terminal_state: &mut EditorState, key: char) {
                 // This is to prevent out of bounds error when we create a new file and try to append text to it.
                 let new_row = Erow::new();
                 terminal_state.row.push(new_row);
+                let mut stdout = io::stdout();
+                stdout
+                    .queue(crossterm::terminal::Clear(ClearType::All))
+                    .unwrap();
                 editor_append_row(String::new(), 0, terminal_state);
+                editor_update_row(&mut terminal_state.row[terminal_state.cy]);
             }
         }
         '$' => {
@@ -463,14 +468,14 @@ fn editor_draw_rows(terminal_state: &EditorState) -> Result<()> {
         let filerow = i + terminal_state.rowoff;
         if filerow >= terminal_state.numrows {
             if i == terminal_state.dimensions.rows / 3 && terminal_state.numrows == 0 {
-                let welcome_str = format!("BREAD EDITOR - VERSION : {VERSION}\r\n");
+                let welcome_str = format!("BREAD EDITOR - VERSION : {VERSION}");
                 let w = (terminal_state.dimensions.columns as usize - welcome_str.len()) / 2;
-                let padding = format!("~{:width$}", " ", width = w);
+                let padding = format!("{:width$}", " ", width = w);
                 stdout
                     .queue(crossterm::style::Print(padding))?
                     .queue(crossterm::style::Print(welcome_str))?;
             } else {
-                stdout.queue(crossterm::style::Print("ba~\r\n"))?;
+                stdout.queue(crossterm::style::Print("\r\n~"))?;
             }
         } else {
             let mut len = terminal_state.row[filerow as usize].rsize;
