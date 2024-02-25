@@ -6,6 +6,7 @@ use crossterm::terminal::ClearType;
 use crossterm::QueueableCommand;
 use std::fs::File;
 use std::io::{Read, Result};
+use std::path::Path;
 use std::time::Duration;
 use std::{fmt, io};
 
@@ -118,6 +119,8 @@ pub struct EditorState {
     pub rowoff: u16,
     pub coloff: u16,
     pub filename: Option<String>,
+    path: Option<String>,
+    message: Option<String>,
     pub dirty: bool,
 }
 
@@ -136,36 +139,50 @@ impl EditorState {
             row,
             rowoff: 0,
             coloff: 0,
+            message: None,
             filename: None,
+            path: None,
             dirty: false,
+        }
+    }
+
+    fn editor_satus_message(&mut self) -> String {
+        if let Some(msg) = &self.message {
+            let padding_len = self.dimensions.columns as usize - msg.len();
+            let padding = format!("{:width$}", " ", width = padding_len);
+            let status = format!("{msg}{}", padding);
+            status
+        } else {
+            let status;
+            if let Some(filename) = &self.filename {
+                let status_content = format!("{} | {}", self.mode, filename);
+                let padding = format!(
+                    "~{:width$}",
+                    " ",
+                    width = self.dimensions.columns as usize - status_content.len() - 1
+                );
+                status = format!("{status_content}{}", padding);
+                status
+            } else {
+                let status_content = format!("{}", self.mode);
+                let padding = format!(
+                    "~{:width$}",
+                    " ",
+                    width = self.dimensions.columns as usize - status_content.len() - 1
+                );
+                status = format!("{status_content}{}", padding);
+                status
+            }
         }
     }
 
     pub fn editor_status_line(&mut self) -> Result<()> {
         let mut stdout = io::stdout();
-        let status;
+        let status = self
+            .editor_satus_message()
+            .with(Color::Black)
+            .on(Color::White);
 
-        if let Some(filename) = &self.filename {
-            let status_content = format!("{} | {}", self.mode, filename);
-            let padding = format!(
-                "~{:width$}",
-                " ",
-                width = self.dimensions.columns as usize - status_content.len() - 1
-            );
-            status = format!("{status_content}{}", padding)
-                .with(Color::Black)
-                .on(Color::White);
-        } else {
-            let status_content = format!("{}", self.mode);
-            let padding = format!(
-                "~{:width$}",
-                " ",
-                width = self.dimensions.columns as usize - status_content.len() - 1
-            );
-            status = format!("{status_content}{}", padding)
-                .with(Color::Black)
-                .on(Color::White);
-        }
         stdout
             .queue(crossterm::cursor::MoveTo(0, self.dimensions.rows + 1))?
             .queue(crossterm::style::Print(status))?;
@@ -184,10 +201,12 @@ impl EditorState {
     }
 
     pub fn editor_save(&mut self) -> io::Result<()> {
-        if let Some(filename) = &self.filename {
+        if let Some(filepath) = &self.path {
             let buffer = self.erow_to_string();
-            std::fs::write(filename, buffer)?;
+            std::fs::write(filepath, buffer)?;
             self.dirty = false;
+            let msg = format!("{} has been saved!", self.filename.clone().unwrap());
+            self.message = Some(msg);
         } else {
         }
 
@@ -212,6 +231,8 @@ impl EditorState {
                             // TODO STATUS MESSAGE
                             unsafe { QUIT_TIMES -= 1 }
                         } else {
+                            let mut stdout = io::stdout();
+                            stdout.queue(crossterm::cursor::SetCursorStyle::SteadyBlock)?;
                             return Ok(true);
                         }
                     }
@@ -276,6 +297,7 @@ impl EditorState {
                         code: KeyCode::Char(c),
                         ..
                     } => {
+                        self.message = None;
                         if self.mode == EditorMode::NORMAL {
                             normal_mode_shortcuts(self, c);
                         } else if self.mode == EditorMode::INSERT {
@@ -396,15 +418,28 @@ impl EditorState {
 
     pub fn editor_open(&mut self, filename: &str) {
         if let Ok(mut f) = File::open(filename) {
-            self.filename = Some(filename.to_string());
             let mut buffer = String::new();
             f.read_to_string(&mut buffer).unwrap();
+
+            self.path = Some(filename.to_string());
+            self.filename = Path::new(filename)
+                .file_name()
+                .map(|os_str| os_str.to_string_lossy().into());
 
             buffer.lines().for_each(|l| {
                 let new_row = Erow::new();
                 self.row.push(new_row);
                 self.editor_append_row(l.to_string(), l.len());
             });
+        } else {
+            let folders = Path::new(filename)
+                .parent()
+                .map(|parent| parent.to_str().unwrap());
+            if let Some(folder) = folders {
+                std::fs::create_dir_all(folder).unwrap();
+            }
+            std::fs::write(filename, "").unwrap();
+            self.editor_open(filename);
         }
     }
 }
